@@ -1,0 +1,8 @@
+{
+  "appId": "com.example.rfpacalculator",
+  "appName": "射频计算器（目前仅pa）",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

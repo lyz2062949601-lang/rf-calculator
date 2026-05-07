@@ -1,0 +1,43 @@
+{
+  "name": "rf-pa-calculator",
+  "version": "1.0.0",
+  "description": "射频计算器（目前仅pa）— 功放增益、DE、PAE 与图表（桌面与安卓封装）",
+  "main": "electron-main.cjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win --x64",
+    "cap:sync": "cap sync",
+    "cap:add:android": "cap add android",
+    "android:patch": "node scripts/patch-android.cjs",
+    "build:apk:arm64": "npm run cap:sync && npm run android:patch && cd android && gradlew.bat assembleDebug"
+  },
+  "author": "射频计算器（目前仅pa）",
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0"
+  },
+  "build": {
+    "appId": "com.example.rfpacalculator",
+    "productName": "RF-Calculator-PA",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron-main.cjs",
+      "package.json",
+      "www/**/*"
+    ],
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "signAndEditExecutable": false,
+      "artifactName": "RF-Calculator-PA-${version}-x64-portable.exe"
+    }
+  }
+}

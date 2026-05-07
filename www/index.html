@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#6750a4" />
+  <meta name="description" content="射频计算器（目前仅pa）：功放增益、DE、PAE 计算与曲线绘制" />
+  <title>射频计算器（目前仅pa）</title>
+  <link rel="stylesheet" href="styles/theme.css" />
+  <link rel="manifest" href="manifest.json" />
+</head>
+<body>
+  <div class="app-root" id="app-root">
+    <header class="top-app-bar">
+      <div class="top-app-bar__row">
+        <h1 class="top-app-bar__title">射频计算器（目前仅pa）</h1>
+      </div>
+      <p class="subtitle">窄屏为左右分页（底部 Dock）；第 4 页为常用设置。记录频率与功率，计算增益、DE、PAE，图表支持双纵轴。</p>
+    </header>
+
+    <main class="main-content">
+      <div class="pager-viewport" id="pager-viewport">
+        <div class="pager-track" id="pager-track">
+          <section class="pager-slide card panel-input" data-dock-label="测量输入">
+            <h2 class="card-title">测量输入</h2>
+            <p class="panel-hint">数字框旁 − / + 按当前小数位数微调（如 45.2 步长 0.1；45.20 步长 0.01）。频率下方显示另一单位换算（如 2.45 GHz ⇄ 2450 MHz）。</p>
+            <div class="form-grid">
+              <label class="field">
+                <span class="field-label">频率</span>
+                <div class="field-row field-row--with-step">
+                  <input type="text" class="field-num-input" id="freq-value" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="例如 2400 或 2.45" />
+                  <div class="step-btns" aria-label="频率微调">
+                    <button type="button" class="btn-step" tabindex="-1" data-step-for="freq-value" data-dir="-">−</button>
+                    <button type="button" class="btn-step" tabindex="-1" data-step-for="freq-value" data-dir="+">+</button>
+                  </div>
+                  <select id="freq-unit" title="MHz 与 GHz 可互换">
+                    <option value="mhz" selected>MHz</option>
+                    <option value="ghz">GHz</option>
+                  </select>
+                  <button type="button" class="btn-outlined btn--sm btn-freq-swap" id="btn-freq-swap" title="在 MHz 与 GHz 之间换算显示">MHz ⇄ GHz</button>
+                </div>
+                <span class="field-hint" id="hint-freq" aria-live="polite"></span>
+              </label>
+              <label class="field">
+                <span class="field-label">输入功率 Pin</span>
+                <div class="field-row field-row--with-step">
+                  <input type="text" class="field-num-input" id="pin-value" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="例如 0.00" />
+                  <div class="step-btns" aria-label="Pin 微调">
+                    <button type="button" class="btn-step" tabindex="-1" data-step-for="pin-value" data-dir="-">−</button>
+                    <button type="button" class="btn-step" tabindex="-1" data-step-for="pin-value" data-dir="+">+</button>
+                  </div>
+                  <select id="pin-unit">
+                    <option value="dbm" selected>dBm</option>
+                    <option value="dbw">dBW</option>
+                    <option value="uw">µW</option>
+                    <option value="mw">mW</option>
+                    <option value="w">W</option>
+                  </select>
+                </div>
+                <span class="field-hint" id="hint-pin" aria-live="polite"></span>
+              </label>
+              <label class="field">
+                <span class="field-label">输出功率 Pout</span>
+                <div class="field-row field-row--with-step">
+                  <input type="text" class="field-num-input" id="pout-value" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="例如 40.00" />
+                  <div class="step-btns" aria-label="Pout 微调">
+                    <button type="button" class="btn-step" tabindex="-1" data-step-for="pout-value" data-dir="-">−</button>
+                    <button type="button" class="btn-step" tabindex="-1" data-step-for="pout-value" data-dir="+">+</button>
+                  </div>
+                  <select id="pout-unit">
+                    <option value="dbm" selected>dBm</option>
+                    <option value="dbw">dBW</option>
+                    <option value="uw">µW</option>
+                    <option value="mw">mW</option>
+                    <option value="w">W</option>
+                  </select>
+                </div>
+                <span class="field-hint" id="hint-pout" aria-live="polite"></span>
+              </label>
+              <label class="field">
+                <span class="field-label">直流功耗 P<sub>DC</sub>（效率用）</span>
+                <div class="field-row field-row--with-step">
+                  <input type="text" class="field-num-input" id="pdc-value" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="例如 15.00" />
+                  <div class="step-btns" aria-label="Pdc 微调">
+                    <button type="button" class="btn-step" tabindex="-1" data-step-for="pdc-value" data-dir="-">−</button>
+                    <button type="button" class="btn-step" tabindex="-1" data-step-for="pdc-value" data-dir="+">+</button>
+                  </div>
+                  <select id="pdc-unit">
+                    <option value="dbm">dBm</option>
+                    <option value="dbw">dBW</option>
+                    <option value="uw">µW</option>
+                    <option value="mw">mW</option>
+                    <option value="w" selected>W</option>
+                  </select>
+                </div>
+                <span class="field-hint" id="hint-pdc" aria-live="polite"></span>
+              </label>
+              <label class="field field-full">
+                <span class="field-label">备注（可选）</span>
+                <input type="text" id="note" placeholder="工况、温度、偏置等" />
+              </label>
+            </div>
+            <div class="button-row">
+              <button type="button" class="btn-filled" id="btn-add">保存到记录</button>
+              <button type="button" class="btn-outlined" id="btn-clear-form">清空表单</button>
+            </div>
+          </section>
+
+          <section class="pager-slide card panel-results" data-dock-label="计算结果">
+            <h2 class="card-title">本次计算结果</h2>
+            <div class="results-grid" id="live-results">
+              <div class="result-item"><span class="result-label">频率</span><span class="result-value" id="res-freq">—</span></div>
+              <div class="result-item"><span class="result-label">P<sub>in</sub></span><span class="result-value result-value--dual" id="res-pin">—</span></div>
+              <div class="result-item"><span class="result-label">增益 G</span><span class="result-value" id="res-gain">—</span></div>
+              <div class="result-item"><span class="result-label">DE（漏极效率）</span><span class="result-value" id="res-de">—</span></div>
+              <div class="result-item"><span class="result-label">PAE</span><span class="result-value" id="res-pae">—</span></div>
+              <div class="result-item"><span class="result-label">P<sub>out</sub></span><span class="result-value result-value--dual" id="res-pout">—</span></div>
+              <div class="result-item"><span class="result-label">P<sub>DC</sub></span><span class="result-value result-value--dual" id="res-pdc">—</span></div>
+            </div>
+            <p class="hint">DE = P<sub>out</sub>/P<sub>DC</sub>；PAE = (P<sub>out</sub>−P<sub>in</sub>)/P<sub>DC</sub>，功率均为线性瓦特折算。</p>
+          </section>
+
+          <section class="pager-slide card panel-chart" data-dock-label="图表">
+            <h2 class="card-title">二维图表（双纵轴）</h2>
+            <p class="panel-hint chart-hint">横轴为 X；左纵轴为 Y₁、右纵轴为 Y₂。悬停同一点可看到两条线的数值。若 Y₁ 与 Y₂ 相同则只画一条线。</p>
+            <div class="chart-controls">
+              <label>
+                横轴 X
+                <select id="chart-x"></select>
+              </label>
+              <label>
+                左纵轴 Y₁
+                <select id="chart-y"></select>
+              </label>
+              <label>
+                右纵轴 Y₂
+                <select id="chart-y2"></select>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="chart-dual" checked />
+                双折线
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="chart-connect" checked />
+                连线
+              </label>
+              <button type="button" class="btn-tonal" id="btn-export-chart-svg">导出图表 SVG</button>
+            </div>
+            <div class="chart-container">
+              <canvas id="chart-canvas"></canvas>
+            </div>
+          </section>
+
+          <section class="pager-slide card panel-last panel-settings-page" data-dock-label="设置">
+            <h2 class="card-title">设置</h2>
+            <p class="panel-hint settings-page-intro">以下为常用项；本页内容较多时可上下滑动查看（整 App 仍为左右分页）。</p>
+
+            <div class="settings-groups">
+              <div class="settings-group card card--nested">
+                <h3 class="settings-group-title">颜色模式</h3>
+                <p class="settings-group-desc">亮色 / 暗色 / 跟随系统；与下方主题色共同作用。</p>
+                <div class="btn-seg-group" role="group" aria-label="颜色模式">
+                  <button type="button" class="btn-seg" id="btn-appearance-light" data-appearance="light">亮色</button>
+                  <button type="button" class="btn-seg" id="btn-appearance-dark" data-appearance="dark">暗色</button>
+                  <button type="button" class="btn-seg is-active" id="btn-appearance-system" data-appearance="system">跟随系统</button>
+                </div>
+              </div>
+
+              <div class="settings-group card card--nested">
+                <h3 class="settings-group-title">字体大小</h3>
+                <p class="settings-group-desc">调整全局文字缩放。</p>
+                <label class="settings-label" for="font-scale-range">当前 <span id="font-scale-value">100%</span></label>
+                <input type="range" id="font-scale-range" min="85" max="130" value="100" />
+              </div>
+
+              <div class="settings-group card card--nested">
+                <h3 class="settings-group-title">主题与取色</h3>
+                <p class="settings-group-desc">全局背景与强调色；可用屏幕取色、相册图、常用色或十六进制色值。</p>
+                <div class="theme-toolbar theme-toolbar--compact" aria-label="主题与取色">
+                  <div class="theme-toolbar__row">
+                    <button type="button" class="btn-tonal" id="btn-theme-screen" title="屏幕取色">屏幕取色</button>
+                    <button type="button" class="btn-tonal" id="btn-theme-wallpaper" title="相册或壁纸图">相册 / 壁纸图</button>
+                    <input type="file" id="wallpaper-input" accept="image/*" hidden />
+                    <button type="button" class="btn-tonal" id="btn-reset-theme">恢复默认主题</button>
+                  </div>
+                  <div class="theme-toolbar__row theme-toolbar__row--swatches">
+                    <span class="theme-toolbar__hint">常用色</span>
+                    <div class="preset-swatches" id="preset-swatches" role="list"></div>
+                  </div>
+                  <div class="theme-toolbar__row theme-toolbar__row--hex">
+                    <label class="hex-label">色值 <input type="text" id="theme-hex-input" class="hex-input" placeholder="#6750a4" maxlength="9" spellcheck="false" autocomplete="off" /></label>
+                    <button type="button" class="btn-outlined btn--sm" id="btn-theme-hex-apply">应用色值</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-group card card--nested settings-group--records">
+                <h3 class="settings-group-title">数据记录</h3>
+                <p class="settings-group-desc">已保存的测量条目；可导出或单条删除。列表区域固定约显示 10 条，更多请在表内向下滚动查看。</p>
+                <div class="card-header-actions settings-records-actions">
+                  <button type="button" class="btn-tonal" id="btn-export-excel-xml" title="Excel 可直接打开">导出 Excel (XML)</button>
+                  <button type="button" class="btn-tonal" id="btn-export-csv">导出 CSV</button>
+                  <button type="button" class="btn-text danger" id="btn-clear-all">清空全部</button>
+                </div>
+                <div class="table-wrap table-wrap--settings">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>频率</th>
+                        <th>Pin</th>
+                        <th>Pout</th>
+                        <th>G (dB)</th>
+                        <th>DE %</th>
+                        <th>PAE %</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="history-body"></tbody>
+                  </table>
+                </div>
+                <p class="empty-hint" id="history-empty">暂无记录，在「测量输入」页保存。</p>
+              </div>
+
+              <div class="settings-group card card--nested settings-group--about">
+                <h3 class="settings-group-title">关于</h3>
+                <p class="settings-about-text">本地存储，数据不上传。Chart.js 已内置，可离线使用。</p>
+                <p class="credit-inline">说明与界面归属 <strong>丨江月</strong></p>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+      <div class="pager-dots" id="pager-dots" role="tablist" aria-label="分页"></div>
+
+      <nav class="app-dock" id="app-dock" aria-label="分页 Dock">
+        <button type="button" class="dock-item is-active" data-dock-idx="0" title="测量输入">
+          <span class="dock-item__icon" aria-hidden="true">①</span>
+          <span class="dock-item__text">输入</span>
+        </button>
+        <button type="button" class="dock-item" data-dock-idx="1" title="本次计算结果">
+          <span class="dock-item__icon" aria-hidden="true">②</span>
+          <span class="dock-item__text">结果</span>
+        </button>
+        <button type="button" class="dock-item" data-dock-idx="2" title="双纵轴图表">
+          <span class="dock-item__icon" aria-hidden="true">③</span>
+          <span class="dock-item__text">图表</span>
+        </button>
+        <button type="button" class="dock-item" data-dock-idx="3" title="设置">
+          <span class="dock-item__icon" aria-hidden="true">④</span>
+          <span class="dock-item__text">设置</span>
+        </button>
+      </nav>
+    </main>
+
+    <footer class="app-footer">
+      <span>射频计算器（目前仅pa）v1.0.0 · 本地存储 · 数据不上传</span>
+      <span class="credit-footer">归属 <strong>丨江月</strong></span>
+    </footer>
+  </div>
+
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="js/app.js" defer></script>
+</body>
+</html>

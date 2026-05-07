@@ -1,0 +1,9 @@
+{
+  "name": "射频计算器（目前仅pa）",
+  "short_name": "射频计算器",
+  "description": "射频计算器（目前仅pa）：功放增益、DE、PAE 与图表",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#fffbfe",
+  "theme_color": "#6750a4"
+}
