@@ -1,9 +1,9 @@
 node_modules/
 dist/
 release/
-# 可选：若不想把安装包纳入 Git 历史，取消下一行注释
-# artifacts/*.exe
-# artifacts/*.apk
+# 安装包走 GitHub Releases，不提交到仓库（减小体积）
+artifacts/*.exe
+artifacts/*.apk
 .DS_Store
 *.log
 npm-debug.log*

@@ -1,12 +1,11 @@
-# 安装包（放这里再提交）
+# 下载文件说明（给点进本文件夹的人）
 
-把本机构建生成的文件**复制到此文件夹**后再 `git add` / `git push`，即可在 GitHub 网页上提供下载。
+**普通用户请直接打开仓库主页的 [Releases（发行版）](https://github.com/lyz2062949601-lang/rf-calculator/releases)**，在 **v1.0.0** 里下载 Windows / 安卓 / 网页离线包，不要在本文件夹里找 Raw 链接。
 
-当前版本 **1.0.0** 建议文件名：
+本目录里可能保留的 **小文件** 仅用于维护者打包或核对：
 
-- `RF-Calculator-PA-1.0.0-x64-portable.exe` — Windows 便携版  
-- `RF-Calculator-PA-v1.0.0-arm64-debug.apk` — Android ARM64 调试包  
+| 文件名 | 含义 |
+|--------|------|
+| `RF-Calculator-PA-v1.0.0-web-offline.zip` | 与 Releases 中「网页离线包」相同：解压后打开 `index.html` 即可。 |
 
-来源一般为本地 `dist\` 下同名文件（与 `package.json` 的 `version`、`build.win.artifactName` 及 `build-apk-arm64.cmd` 一致）。
-
-单个文件请小于 **100 MB**（GitHub 限制）。
+Windows 安装包（`.exe`）和安卓安装包（`.apk`）体积较大，**请以 Releases 上的附件为准**。

@@ -8,6 +8,12 @@
   - RF-Calculator-PA-arm64-debug.apk      与上一行同一 APK 的副本
   build-win.cmd 会删除 dist\win-unpacked，再写入便携 exe 与 web-v3\。
 
+■ 对外发布（GitHub Releases）
+  用户下载入口以 Releases 为准。同步 docs 后，可生成 artifacts\RF-Calculator-PA-v1.0.0-web-offline.zip（与 README 中附件名一致），
+  再与 exe、apk 一并上传。自动上传：设置环境变量 GITHUB_TOKEN 后执行
+    powershell -ExecutionPolicy Bypass -File scripts\publish-github-release.ps1
+  大体积 exe/apk 勿提交到 Git（见根目录 .gitignore）。
+
 ■ 国内网络（脚本 + 工程内固定源）
   1) 项目根 .npmrc：registry=https://registry.npmmirror.com（npm install 默认走国内，不依赖先跑 env-china）
   2) scripts\env-china.cmd（由 build-*.cmd 自动调用）额外设置：
