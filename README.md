@@ -2,7 +2,7 @@
 
 本地计算功放增益、DE、PAE，支持图表与导出。当前版本 **1.0.0**。归属 **丨江月**。
 
-> GitHub 仓库若仍使用旧英文名（如 `rf-calculator`），可在仓库 **Settings → General → Repository name** 中改名；本地显示名已统一为「射频计算器（目前仅pa）」。
+> GitHub 仓库若仍使用旧英文名（如 `rf-calculator`），可在仓库 **Settings → General → Repository name** 中改名为「射频计算器（目前仅pa）」等；应用内与网页标题已统一为「射频计算器（目前仅pa）」。
 
 ## 仓库里三块内容
 
