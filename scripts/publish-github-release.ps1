@@ -10,13 +10,13 @@
     powershell -ExecutionPolicy Bypass -File scripts\publish-github-release.ps1
 
   若无 TOKEN：在 GitHub 网页 Releases → Draft new release → Tag v1.0.0，
-  将 artifacts 目录下上述三个文件拖入附件区即可（可先运行本脚本前半段仅生成 zip，或手动打包 docs）。
+  将上述三个文件拖入附件区（可先本地生成 zip，或手动打包 docs）；详见根目录 BUILDING.md。
 #>
 $ErrorActionPreference = "Stop"
 $Owner = "lyz2062949601-lang"
 $Repo = "rf-calculator"
 $Tag = "v1.0.0"
-$ReleaseTitle = "射频计算器（目前仅pa）第一版 v1.0.0"
+$ReleaseTitle = "射频计算器（目前仅 PA）v1.0.0"
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Docs = Join-Path $Root "docs"

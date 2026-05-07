@@ -1,11 +1,19 @@
-# 下载文件说明（给点进本文件夹的人）
+# `artifacts/` 目录说明
 
-**普通用户请直接打开仓库主页的 [Releases（发行版）](https://github.com/lyz2062949601-lang/rf-calculator/releases)**，在 **v1.0.0** 里下载 Windows / 安卓 / 网页离线包，不要在本文件夹里找 Raw 链接。
+本目录用于存放**体积小、便于与仓库一同版本管理**的辅助文件（例如网页离线包的副本）。
 
-本目录里可能保留的 **小文件** 仅用于维护者打包或核对：
+## 用户从哪里下载？
 
-| 文件名 | 含义 |
-|--------|------|
-| `RF-Calculator-PA-v1.0.0-web-offline.zip` | 与 Releases 中「网页离线包」相同：解压后打开 `index.html` 即可。 |
+请前往仓库的 **[Releases（发行版）](https://github.com/lyz2062949601-lang/rf-calculator/releases)**，在对应版本（如 **v1.0.0**）的 **Assets** 中下载：
 
-Windows 安装包（`.exe`）和安卓安装包（`.apk`）体积较大，**请以 Releases 上的附件为准**。
+- Windows 便携可执行文件（`.exe`）
+- Android 安装包（`.apk`）
+- 网页离线包（`.zip`）
+
+**不要**在本目录对 `.exe` / `.apk` 使用「Raw」下载作为主渠道；大体积安装包以 **Releases** 为准（亦见根目录 `.gitignore`）。
+
+## 本目录中可能出现的文件
+
+| 文件 | 说明 |
+|------|------|
+| `RF-Calculator-PA-v1.0.0-web-offline.zip` | 与 Releases 中「网页离线包」一致：解压后打开 `index.html` 即可离线使用 |

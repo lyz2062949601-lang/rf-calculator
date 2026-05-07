@@ -1,9 +1,28 @@
 {
   "name": "rf-pa-calculator",
   "version": "1.0.0",
-  "description": "射频计算器（目前仅pa）— 功放增益、DE、PAE 与图表（桌面与安卓封装）",
+  "description": "射频计算器（目前仅 PA）— 功放增益、DE、PAE 与图表；支持 Web / Windows / Android。",
   "main": "electron-main.cjs",
   "private": true,
+  "homepage": "https://lyz2062949601-lang.github.io/rf-calculator/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lyz2062949601-lang/rf-calculator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lyz2062949601-lang/rf-calculator/issues"
+  },
+  "keywords": [
+    "rf",
+    "pa",
+    "power-amplifier",
+    "efficiency",
+    "pae",
+    "electron",
+    "capacitor",
+    "calculator",
+    "chartjs"
+  ],
   "scripts": {
     "start": "electron .",
     "dist:win": "electron-builder --win --x64",
