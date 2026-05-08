@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 call "%~dp0scripts\env-china.cmd"
-rem 若未设置 JAVA_HOME，自动使用 Microsoft OpenJDK 21（winget 默认安装路径）
+rem If JAVA_HOME unset, try Microsoft OpenJDK 21 under Program Files
 if not defined JAVA_HOME (
   for /d %%J in ("C:\Program Files\Microsoft\jdk-21*") do (
     set "JAVA_HOME=%%~fJ"
@@ -43,9 +43,9 @@ set ERR=%errorlevel%
 cd ..
 if not %ERR%==0 exit /b %ERR%
 if not exist dist mkdir dist
-copy /Y "android\app\build\outputs\apk\debug\app-debug.apk" "dist\RF-Calculator-PA-v1.0.0-arm64-debug.apk" >nul
+copy /Y "android\app\build\outputs\apk\debug\app-debug.apk" "dist\RF-Calculator-PA-v1.2.0-arm64-debug.apk" >nul
 copy /Y "android\app\build\outputs\apk\debug\app-debug.apk" "dist\RF-Calculator-PA-arm64-debug.apk" >nul
 echo.
 echo Gradle 输出: android\app\build\outputs\apk\debug\app-debug.apk
-echo 发布副本: dist\RF-Calculator-PA-v1.0.0-arm64-debug.apk ^(及 RF-Calculator-PA-arm64-debug.apk 同包^)
+echo 发布副本: dist\RF-Calculator-PA-v1.2.0-arm64-debug.apk ^(及 RF-Calculator-PA-arm64-debug.apk 同包^)
 exit /b 0

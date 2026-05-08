@@ -1,11 +1,15 @@
-/* 射频计算器（目前仅pa）v1.0.0 — 全局主题、窄屏左右分页 Dock、末页设置式布局、双纵轴、MHz⇄GHz 互显 */
+/* 射频测试记录工具 v1.2 — Hub/PA、测试集、字号预设、驻波/热、Toast、WebView 导出兜底 */
 
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "rf-pa-calculator-records-v1";
+  const STORAGE_KEY = "rf-platform-app-state-v2";
+  const LEGACY_STORAGE_KEY = "rf-pa-calculator-records-v1";
   const APPEARANCE_STORAGE_KEY = "rf-pa-appearance-v1";
   const FONT_SCALE_STORAGE_KEY = "rf-pa-font-scale-v1";
+  const SORT_STORAGE_KEY = "rf-platform-sort-v1";
+  /** 字号档位（%），与 HTML data-font-scale 一致 */
+  const FONT_SCALE_PRESETS = [88, 100, 112, 125];
 
   const FREQ_TO_HZ = { hz: 1, khz: 1e3, mhz: 1e6, ghz: 1e9 };
 
@@ -147,6 +151,60 @@
     return (100 * x).toFixed(2) + " %";
   }
 
+  /** Pref/Pin 功率比 → 回波损耗(dB)、VSWR；Pref≥Pin 或无效 → NaN */
+  function computeVswrFromPinPref(pinMw, prefMw) {
+    if (!isFinite(prefMw) || prefMw < 0) {
+      return { vswr: NaN, rlDb: NaN, gamma: NaN, err: null };
+    }
+    if (!isFinite(pinMw) || pinMw <= 0) {
+      return { vswr: NaN, rlDb: NaN, gamma: NaN, err: null };
+    }
+    if (prefMw === 0) {
+      return { vswr: 1, rlDb: Infinity, gamma: 0, err: null };
+    }
+    if (prefMw >= pinMw) {
+      return { vswr: NaN, rlDb: NaN, gamma: NaN, err: "pref_ge_pin" };
+    }
+    var gamma = Math.sqrt(prefMw / pinMw);
+    var rlDb = -10 * Math.log10(prefMw / pinMw);
+    var vswr = (1 + gamma) / (1 - gamma);
+    return { vswr: vswr, rlDb: rlDb, gamma: gamma, err: null };
+  }
+
+  /** Pdiss(W) = Pdc + Pin − Pout；ΔT = Pdiss × Rth (K) */
+  function computeThermal(pinMw, poutMw, pdcMw, rth) {
+    var pinW = pinMw / 1000;
+    var poutW = poutMw / 1000;
+    var pdcW = pdcMw / 1000;
+    var pdissW = pdcW + pinW - poutW;
+    var r = isFinite(rth) && rth >= 0 ? rth : 0;
+    var deltaT = pdissW * r;
+    return { pdissW: pdissW, deltaT: deltaT };
+  }
+
+  function fmtRlDb(x) {
+    if (x === Infinity || x === -Infinity) return "∞";
+    if (!isFinite(x)) return "—";
+    return x.toFixed(2) + " dB";
+  }
+
+  function fmtVswr(x) {
+    if (!isFinite(x) || x < 1) return "—";
+    return x.toFixed(2);
+  }
+
+  function fmtPdissW(x) {
+    if (!isFinite(x)) return "—";
+    var ax = Math.abs(x);
+    if (ax >= 1) return x.toFixed(3) + " W";
+    return (x * 1000).toFixed(2) + " mW";
+  }
+
+  function fmtDeltaT(x) {
+    if (!isFinite(x)) return "—";
+    return x.toFixed(2) + " K";
+  }
+
   function fmtDb(x) {
     if (isNaN(x)) return "—";
     return x.toFixed(3) + " dB";
@@ -258,7 +316,16 @@
     };
   }
 
+  function recordDerived(rec) {
+    var prefMw = rec.prefMw;
+    var rth = rec.rth != null && isFinite(rec.rth) ? rec.rth : 0;
+    var vp = computeVswrFromPinPref(rec.pinMw, prefMw);
+    var th = computeThermal(rec.pinMw, rec.poutMw, rec.pdcMw, rth);
+    return { vswr: vp.vswr, rlDb: vp.rlDb, pdissW: th.pdissW, deltaT: th.deltaT };
+  }
+
   function recordToPoint(rec, meta) {
+    var d = recordDerived(rec);
     return {
       freq: rec.freqHz / meta.freqDivisor,
       pin: meta.pinFn(rec),
@@ -267,10 +334,24 @@
       gainDb: rec.gainDb,
       dePct: isFinite(rec.de) ? 100 * rec.de : NaN,
       paePct: isFinite(rec.pae) ? 100 * rec.pae : NaN,
+      vswr: d.vswr,
+      pdissW: d.pdissW,
+      deltaTK: d.deltaT,
     };
   }
 
-  const AXIS_ORDER = ["freq", "pin", "pout", "pdc", "gainDb", "dePct", "paePct"];
+  const AXIS_ORDER = [
+    "freq",
+    "pin",
+    "pout",
+    "pdc",
+    "gainDb",
+    "dePct",
+    "paePct",
+    "vswr",
+    "pdissW",
+    "deltaTK",
+  ];
 
   function axisLabelFromMeta(key, meta) {
     switch (key) {
@@ -288,24 +369,104 @@
         return "DE (%)";
       case "paePct":
         return "PAE (%)";
+      case "vswr":
+        return "VSWR";
+      case "pdissW":
+        return "Pdiss (W)";
+      case "deltaTK":
+        return "ΔT (K)";
       default:
         return key;
     }
   }
 
-  function loadRecords() {
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      var data = JSON.parse(raw);
-      return Array.isArray(data) ? data : [];
-    } catch (e) {
-      return [];
-    }
+  function migrateLegacyRecords(arr) {
+    return arr.map(function (rec) {
+      var o = Object.assign({}, rec);
+      if (o.prefMw === undefined) o.prefMw = NaN;
+      if (o.rth === undefined) o.rth = 0;
+      return o;
+    });
   }
 
-  function saveRecords(records) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  function genSid() {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+    return "s-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+  }
+
+  function defaultAppState() {
+    var sid = genSid();
+    return {
+      version: 2,
+      activeSessionId: sid,
+      sessions: [{ id: sid, name: "默认测试集", records: [] }],
+    };
+  }
+
+  function loadAppStateRaw() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        var data = JSON.parse(raw);
+        if (data && data.version === 2 && Array.isArray(data.sessions)) return data;
+      }
+      raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (raw) {
+        var legacy = JSON.parse(raw);
+        if (Array.isArray(legacy)) {
+          var st = defaultAppState();
+          st.sessions[0].records = migrateLegacyRecords(legacy);
+          return st;
+        }
+      }
+    } catch (e) {}
+    return defaultAppState();
+  }
+
+  function saveAppState() {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        activeSessionId: activeSessionId,
+        sessions: sessions,
+      })
+    );
+  }
+
+  var sessions = [];
+  var activeSessionId = "";
+  var records = [];
+
+  function syncActiveRecordsRef() {
+    var s = sessions.filter(function (x) {
+      return x.id === activeSessionId;
+    })[0];
+    if (!s && sessions.length) {
+      activeSessionId = sessions[0].id;
+      s = sessions[0];
+    }
+    records = s ? s.records : [];
+  }
+
+  function loadRecords() {
+    var st = loadAppStateRaw();
+    sessions = st.sessions || [];
+    activeSessionId = st.activeSessionId || (sessions[0] && sessions[0].id) || "";
+    if (!sessions.length) {
+      var d = defaultAppState();
+      sessions = d.sessions;
+      activeSessionId = d.activeSessionId;
+    }
+    sessions.forEach(function (s) {
+      s.records = migrateLegacyRecords(s.records || []);
+    });
+    syncActiveRecordsRef();
+    return records;
+  }
+
+  function saveRecords() {
+    saveAppState();
   }
 
   function rgbToHex(r, g, b) {
@@ -496,10 +657,123 @@
     syncAppearanceClasses();
   }
 
-  var records = [];
   var chart = null;
   var lastChartMeta = null;
   var lastChartSnapshot = null;
+
+  var sortState = { key: null, asc: true };
+
+  function loadSortState() {
+    try {
+      var raw = localStorage.getItem(SORT_STORAGE_KEY);
+      if (!raw) return;
+      var o = JSON.parse(raw);
+      if (o && typeof o.key !== "undefined") sortState.key = o.key;
+      if (typeof o.asc === "boolean") sortState.asc = o.asc;
+    } catch (e) {}
+  }
+
+  function saveSortState() {
+    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sortState));
+  }
+
+  function showToast(message, duration) {
+    duration = duration == null ? 2200 : duration;
+    var host = document.getElementById("toast-host");
+    if (!host) return;
+    var el = document.createElement("div");
+    el.className = "toast";
+    el.textContent = message;
+    host.appendChild(el);
+    window.setTimeout(function () {
+      el.classList.add("toast--out");
+      window.setTimeout(function () {
+        if (el.parentNode) el.parentNode.removeChild(el);
+      }, 220);
+    }, duration);
+  }
+
+  function isAndroidWebView() {
+    var ua = navigator.userAgent || "";
+    if (/wv/i.test(ua) && /Android/i.test(ua)) return true;
+    if (typeof window.Capacitor !== "undefined") return true;
+    return false;
+  }
+
+  function openExportFallbackModal(text) {
+    var modal = document.getElementById("export-fallback-modal");
+    var ta = document.getElementById("export-fallback-text");
+    if (!modal || !ta) return;
+    ta.value = text || "";
+    modal.classList.remove("is-hidden");
+  }
+
+  function closeExportFallbackModal() {
+    var modal = document.getElementById("export-fallback-modal");
+    if (modal) modal.classList.add("is-hidden");
+  }
+
+  function setupExportFallbackModal() {
+    var closeBtn = document.getElementById("export-fallback-close");
+    var copyBtn = document.getElementById("export-fallback-copy");
+    var bd = document.getElementById("export-fallback-backdrop");
+    if (closeBtn)
+      closeBtn.addEventListener("click", function () {
+        closeExportFallbackModal();
+      });
+    if (bd)
+      bd.addEventListener("click", function () {
+        closeExportFallbackModal();
+      });
+    if (copyBtn)
+      copyBtn.addEventListener("click", function () {
+        var ta = document.getElementById("export-fallback-text");
+        if (!ta) return;
+        ta.select();
+        try {
+          navigator.clipboard.writeText(ta.value).then(
+            function () {
+              showToast("已复制到剪贴板");
+            },
+            function () {
+              showToast("复制失败，请手动长按选择复制");
+            }
+          );
+        } catch (e) {
+          showToast("复制失败，请手动选择文本");
+        }
+      });
+  }
+
+  function downloadBlob(filename, mime, text) {
+    try {
+      var blob = new Blob([text], { type: mime });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      openExportFallbackModal(text);
+      showToast("下载受限，请使用复制保存");
+    }
+  }
+
+  function downloadBlobSmart(filename, mime, text) {
+    try {
+      if (isAndroidWebView()) {
+        openExportFallbackModal(text);
+        showToast("当前环境请复制内容保存文件");
+        return;
+      }
+      downloadBlob(filename, mime, text);
+    } catch (e2) {
+      openExportFallbackModal(text);
+      showToast("下载受限，请复制保存");
+    }
+  }
 
   function parseNumField(el) {
     if (!el) return NaN;
@@ -543,19 +817,26 @@
       pinUnit: document.getElementById("pin-unit").value,
       poutValue: parseNumField(document.getElementById("pout-value")),
       poutUnit: document.getElementById("pout-unit").value,
+      prefValue: parseNumField(document.getElementById("pref-value")),
+      prefUnit: document.getElementById("pref-unit").value,
       pdcValue: parseNumField(document.getElementById("pdc-value")),
       pdcUnit: document.getElementById("pdc-unit").value,
+      rthValue: parseNumField(document.getElementById("rth-value")),
       note: document.getElementById("note").value.trim(),
     };
   }
 
   function computeFromForm() {
     var f = readForm();
+    var prefMw = powerToMw(f.prefValue, f.prefUnit);
+    var rth = isFinite(f.rthValue) && f.rthValue >= 0 ? f.rthValue : 0;
     return {
       freqHz: freqToHz(f.freqValue, f.freqUnit),
       pinMw: powerToMw(f.pinValue, f.pinUnit),
       poutMw: powerToMw(f.poutValue, f.poutUnit),
       pdcMw: powerToMw(f.pdcValue, f.pdcUnit),
+      prefMw: prefMw,
+      rth: rth,
       note: f.note,
     };
   }
@@ -577,11 +858,12 @@
     return "⇄ " + formatFreqSmart(freqHz);
   }
 
-  function updateFieldHints(v, freqHz, pinMw, poutMw, pdcMw, ok) {
+  function updateFieldHints(v, freqHz, pinMw, poutMw, pdcMw, prefMw, ok) {
     var hf = document.getElementById("hint-freq");
     var hp = document.getElementById("hint-pin");
     var ho = document.getElementById("hint-pout");
     var hd = document.getElementById("hint-pdc");
+    var hr = document.getElementById("hint-pref");
     if (!hf) return;
 
     var freqEl = document.getElementById("freq-value");
@@ -604,6 +886,13 @@
       ok && isFinite(pdcMw)
         ? "⇄ " + formatPowerHint(pdcMw, v.pdcUnit)
         : "";
+
+    if (hr) {
+      hr.textContent =
+        ok && isFinite(prefMw) && prefMw > 0
+          ? "⇄ " + formatPowerHint(prefMw, v.prefUnit)
+          : "";
+    }
   }
 
   function updateLiveResults() {
@@ -612,19 +901,36 @@
     var pinMw = powerToMw(v.pinValue, v.pinUnit);
     var poutMw = powerToMw(v.poutValue, v.poutUnit);
     var pdcMw = powerToMw(v.pdcValue, v.pdcUnit);
+    var prefMw = powerToMw(v.prefValue, v.prefUnit);
     var ok =
       isFinite(freqHz) && isFinite(pinMw) && isFinite(poutMw) && isFinite(pdcMw);
 
-    updateFieldHints(v, freqHz, pinMw, poutMw, pdcMw, ok);
+    updateFieldHints(v, freqHz, pinMw, poutMw, pdcMw, prefMw, ok);
+
+    var rth = isFinite(v.rthValue) && v.rthValue >= 0 ? v.rthValue : 0;
+    var vp = computeVswrFromPinPref(pinMw, prefMw);
+    var th = computeThermal(pinMw, poutMw, pdcMw, rth);
 
     document.getElementById("res-freq").textContent = ok ? formatFreqSmart(freqHz) : "—";
     var elPin = document.getElementById("res-pin");
     if (elPin) elPin.textContent = ok ? formatPowerDual(pinMw) : "—";
+    var elPref = document.getElementById("res-pref");
+    if (elPref)
+      elPref.textContent =
+        ok && isFinite(prefMw) ? formatPowerDual(prefMw) : "—";
+
+    document.getElementById("res-vswr").textContent =
+      ok && isFinite(prefMw) ? fmtVswr(vp.vswr) : "—";
+    document.getElementById("res-rl").textContent =
+      ok && isFinite(prefMw) ? fmtRlDb(vp.rlDb) : "—";
+
     document.getElementById("res-gain").textContent = ok ? fmtDb(gainDb(pinMw, poutMw)) : "—";
     document.getElementById("res-de").textContent = ok ? pct(drainEfficiency(poutMw, pdcMw)) : "—";
     document.getElementById("res-pae").textContent = ok
       ? pct(powerAddedEfficiency(pinMw, poutMw, pdcMw))
       : "—";
+    document.getElementById("res-pdiss").textContent = ok ? fmtPdissW(th.pdissW) : "—";
+    document.getElementById("res-dt").textContent = ok ? fmtDeltaT(th.deltaT) : "—";
     document.getElementById("res-pout").textContent = ok ? formatPowerDual(poutMw) : "—";
     document.getElementById("res-pdc").textContent = ok ? formatPowerDual(pdcMw) : "—";
   }
@@ -637,54 +943,163 @@
   function addRecord() {
     var c = computeFromForm();
     if (!isFinite(c.freqHz) || !isFinite(c.pinMw) || !isFinite(c.poutMw) || !isFinite(c.pdcMw)) {
-      alert("请填写有效的频率与功率数值（直流功耗用于效率计算）。");
+      showToast("请填写有效的频率与功率（含直流功耗）。");
       return;
     }
+    var vp = computeVswrFromPinPref(c.pinMw, c.prefMw);
+    if (isFinite(c.prefMw) && vp.err === "pref_ge_pin") {
+      showToast("Pref ≥ Pin，无法计算 VSWR；条目仍会保存。");
+    }
+    syncActiveRecordsRef();
     records.push({
       id: newId(),
       freqHz: c.freqHz,
       pinMw: c.pinMw,
       poutMw: c.poutMw,
       pdcMw: c.pdcMw,
+      prefMw: isFinite(c.prefMw) ? c.prefMw : NaN,
+      rth: c.rth,
       gainDb: gainDb(c.pinMw, c.poutMw),
       de: drainEfficiency(c.poutMw, c.pdcMw),
       pae: powerAddedEfficiency(c.pinMw, c.poutMw, c.pdcMw),
       note: c.note || undefined,
       createdAt: Date.now(),
     });
-    saveRecords(records);
+    saveRecords();
+    showToast("已保存到当前测试集");
     renderHistory();
+    renderResultsRecordsTable();
     renderChart();
   }
 
   function deleteRecord(id) {
-    records = records.filter(function (r) {
-      return r.id !== id;
-    });
-    saveRecords(records);
+    syncActiveRecordsRef();
+    var i;
+    for (i = records.length - 1; i >= 0; i--) {
+      if (records[i].id === id) records.splice(i, 1);
+    }
+    saveRecords();
+    showToast("已删除一条记录");
     renderHistory();
+    renderResultsRecordsTable();
     renderChart();
   }
 
   function clearAllRecords() {
     if (!records.length) return;
-    if (!confirm("确定清空全部记录？")) return;
-    records = [];
-    saveRecords(records);
+    if (!confirm("确定清空当前测试集的全部记录？")) return;
+    syncActiveRecordsRef();
+    records.length = 0;
+    saveRecords();
+    showToast("已清空本测试集");
     renderHistory();
+    renderResultsRecordsTable();
     renderChart();
   }
 
-  function renderHistory() {
-    var tbody = document.getElementById("history-body");
-    var empty = document.getElementById("history-empty");
+  function recordSortValue(rec, key) {
+    var d;
+    switch (key) {
+      case "freqHz":
+        return rec.freqHz;
+      case "pinMw":
+        return rec.pinMw;
+      case "poutMw":
+        return rec.poutMw;
+      case "prefMw":
+        return isFinite(rec.prefMw) ? rec.prefMw : NaN;
+      case "gainDb":
+        return rec.gainDb;
+      case "de":
+        return rec.de;
+      case "pae":
+        return rec.pae;
+      case "vswr":
+        d = recordDerived(rec);
+        return d.vswr;
+      case "pdissW":
+        d = recordDerived(rec);
+        return d.pdissW;
+      case "createdAt":
+        return rec.createdAt || 0;
+      default:
+        return 0;
+    }
+  }
+
+  function sortLabelFromKey(key) {
+    var map = {
+      freqHz: "频率",
+      pinMw: "Pin",
+      poutMw: "Pout",
+      prefMw: "Pref",
+      gainDb: "增益",
+      de: "DE",
+      pae: "PAE",
+      vswr: "VSWR",
+      pdissW: "Pdiss",
+      createdAt: "时间",
+    };
+    return map[key] || key;
+  }
+
+  function getSortedRecords() {
+    syncActiveRecordsRef();
+    var list = records.slice();
+    if (!sortState.key) return list;
+    var k = sortState.key;
+    var dir = sortState.asc ? 1 : -1;
+    list.sort(function (a, b) {
+      var va = recordSortValue(a, k);
+      var vb = recordSortValue(b, k);
+      var na = !isFinite(va);
+      var nb = !isFinite(vb);
+      if (na && nb) return 0;
+      if (na) return 1;
+      if (nb) return -1;
+      if (va === vb) return 0;
+      return va < vb ? -dir : dir;
+    });
+    return list;
+  }
+
+  function handleSortClick(key) {
+    if (sortState.key === key) sortState.asc = !sortState.asc;
+    else {
+      sortState.key = key;
+      sortState.asc = true;
+    }
+    saveSortState();
+    renderHistory();
+    renderResultsRecordsTable();
+    renderChart();
+    showToast(
+      "已按 " + sortLabelFromKey(key) + " " + (sortState.asc ? "升序" : "降序") + " 排序"
+    );
+  }
+
+  function setupSortableHeaders() {
+    document.querySelectorAll(".th-sort").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        handleSortClick(btn.getAttribute("data-sort-key"));
+      });
+    });
+  }
+
+  function renderResultsRecordsTable() {
+    var tbody = document.getElementById("results-records-body");
+    var empty = document.getElementById("results-records-empty");
+    if (!tbody) return;
+    syncActiveRecordsRef();
+    var sorted = getSortedRecords();
     tbody.innerHTML = "";
-    if (!records.length) {
-      empty.classList.add("visible");
+    if (!sorted.length) {
+      if (empty) empty.classList.add("visible");
       return;
     }
-    empty.classList.remove("visible");
-    records.forEach(function (rec, idx) {
+    if (empty) empty.classList.remove("visible");
+    sorted.forEach(function (rec, idx) {
+      var d = recordDerived(rec);
       var tr = document.createElement("tr");
       tr.innerHTML =
         "<td>" +
@@ -699,6 +1114,9 @@
         '<td class="num cell-dual">' +
         formatPowerDual(rec.poutMw) +
         "</td>" +
+        '<td class="num cell-dual">' +
+        (isFinite(rec.prefMw) ? formatPowerDual(rec.prefMw) : "—") +
+        "</td>" +
         '<td class="num">' +
         fmtDb(rec.gainDb) +
         "</td>" +
@@ -707,6 +1125,59 @@
         "</td>" +
         '<td class="num">' +
         pct(rec.pae) +
+        "</td>" +
+        '<td class="num">' +
+        fmtVswr(d.vswr) +
+        "</td>" +
+        '<td class="num">' +
+        fmtPdissW(d.pdissW) +
+        "</td>";
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderHistory() {
+    var tbody = document.getElementById("history-body");
+    var empty = document.getElementById("history-empty");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    syncActiveRecordsRef();
+    var sorted = getSortedRecords();
+    if (!sorted.length) {
+      if (empty) empty.classList.add("visible");
+      return;
+    }
+    if (empty) empty.classList.remove("visible");
+    sorted.forEach(function (rec, idx) {
+      var d = recordDerived(rec);
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" +
+        (idx + 1) +
+        "</td>" +
+        '<td class="num cell-dual">' +
+        formatFreqSmart(rec.freqHz) +
+        "</td>" +
+        '<td class="num cell-dual">' +
+        formatPowerDual(rec.pinMw) +
+        "</td>" +
+        '<td class="num cell-dual">' +
+        formatPowerDual(rec.poutMw) +
+        "</td>" +
+        '<td class="num cell-dual">' +
+        (isFinite(rec.prefMw) ? formatPowerDual(rec.prefMw) : "—") +
+        "</td>" +
+        '<td class="num">' +
+        fmtDb(rec.gainDb) +
+        "</td>" +
+        '<td class="num">' +
+        pct(rec.de) +
+        "</td>" +
+        '<td class="num">' +
+        pct(rec.pae) +
+        "</td>" +
+        '<td class="num">' +
+        fmtVswr(d.vswr) +
         "</td>" +
         '<td><button type="button" class="btn-icon" data-id="' +
         rec.id +
@@ -738,17 +1209,6 @@
       .replace(/"/g, "&quot;");
   }
 
-  function downloadBlob(filename, mime, text) {
-    var blob = new Blob([text], { type: mime });
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(a.href);
-  }
-
   function csvEscape(s) {
     var t = String(s);
     if (/[",\n\r]/.test(t)) return '"' + t.replace(/"/g, '""') + '"';
@@ -765,10 +1225,12 @@
   }
 
   function exportRecordsExcelXml() {
+    syncActiveRecordsRef();
     if (!records.length) {
-      alert("暂无记录可导出。");
+      showToast("暂无记录可导出");
       return;
     }
+    var sorted = getSortedRecords();
     var lines = [];
     lines.push('<?xml version="1.0" encoding="UTF-8"?>');
     lines.push('<?mso-application progid="Excel.Sheet"?>');
@@ -783,13 +1245,20 @@
       "频率_显示",
       "Pin_mW",
       "Pout_mW",
+      "Pref_mW",
       "Pdc_mW",
+      "Rth_K_per_W",
       "Pin_显示",
       "Pout_显示",
+      "Pref_显示",
       "Pdc_显示",
       "G_dB",
       "DE_%",
       "PAE_%",
+      "VSWR",
+      "RL_dB",
+      "Pdiss_W",
+      "DeltaT_K",
       "备注",
       "时间_ISO",
     ];
@@ -799,74 +1268,103 @@
       lines.push(strCellXml(headers[hi]));
     }
     lines.push("</Row>");
-    records.forEach(function (rec, idx) {
+    sorted.forEach(function (rec, idx) {
+      var d = recordDerived(rec);
       lines.push("<Row>");
       lines.push(strCellXml(String(idx + 1)));
       lines.push(numCellXml(rec.freqHz));
       lines.push(strCellXml(formatFreqSmart(rec.freqHz)));
       lines.push(numCellXml(rec.pinMw));
       lines.push(numCellXml(rec.poutMw));
+      lines.push(numCellXml(isFinite(rec.prefMw) ? rec.prefMw : NaN));
       lines.push(numCellXml(rec.pdcMw));
+      lines.push(numCellXml(rec.rth != null ? rec.rth : 0));
       lines.push(strCellXml(formatPowerDual(rec.pinMw)));
       lines.push(strCellXml(formatPowerDual(rec.poutMw)));
+      lines.push(
+        strCellXml(isFinite(rec.prefMw) ? formatPowerDual(rec.prefMw) : "")
+      );
       lines.push(strCellXml(formatPowerDual(rec.pdcMw)));
       lines.push(numCellXml(rec.gainDb));
       lines.push(numCellXml(isFinite(rec.de) ? 100 * rec.de : NaN));
       lines.push(numCellXml(isFinite(rec.pae) ? 100 * rec.pae : NaN));
+      lines.push(numCellXml(d.vswr));
+      lines.push(numCellXml(isFinite(d.rlDb) ? d.rlDb : NaN));
+      lines.push(numCellXml(d.pdissW));
+      lines.push(numCellXml(d.deltaT));
       lines.push(strCellXml(rec.note || ""));
       lines.push(strCellXml(new Date(rec.createdAt).toISOString()));
       lines.push("</Row>");
     });
     lines.push("</Table></Worksheet></Workbook>");
-    downloadBlob(
-      "rf-pa-records.xml",
+    downloadBlobSmart(
+      "rf-platform-records.xml",
       "application/vnd.ms-excel;charset=utf-8",
       "\ufeff" + lines.join("\n")
     );
+    showToast("Excel XML 已生成");
   }
 
   function exportRecordsCsv() {
+    syncActiveRecordsRef();
     if (!records.length) {
-      alert("暂无记录可导出。");
+      showToast("暂无记录可导出");
       return;
     }
+    var sorted = getSortedRecords();
     var headers = [
       "#",
       "频率_Hz",
       "频率_显示",
       "Pin_mW",
       "Pout_mW",
+      "Pref_mW",
       "Pdc_mW",
+      "Rth_K_per_W",
       "Pin_显示",
       "Pout_显示",
+      "Pref_显示",
       "Pdc_显示",
       "G_dB",
       "DE_%",
       "PAE_%",
+      "VSWR",
+      "RL_dB",
+      "Pdiss_W",
+      "DeltaT_K",
       "备注",
       "时间_ISO",
     ];
     var rows = [headers.map(csvEscape).join(",")];
-    records.forEach(function (rec, idx) {
+    sorted.forEach(function (rec, idx) {
+      var d = recordDerived(rec);
       var row = [
         idx + 1,
         rec.freqHz,
         formatFreqSmart(rec.freqHz),
         rec.pinMw,
         rec.poutMw,
+        isFinite(rec.prefMw) ? rec.prefMw : "",
         rec.pdcMw,
+        rec.rth != null ? rec.rth : 0,
         formatPowerDual(rec.pinMw),
         formatPowerDual(rec.poutMw),
+        isFinite(rec.prefMw) ? formatPowerDual(rec.prefMw) : "",
         formatPowerDual(rec.pdcMw),
         isFinite(rec.gainDb) ? rec.gainDb : "",
         isFinite(rec.de) ? 100 * rec.de : "",
         isFinite(rec.pae) ? 100 * rec.pae : "",
+        isFinite(d.vswr) ? d.vswr : "",
+        isFinite(d.rlDb) ? d.rlDb : "",
+        isFinite(d.pdissW) ? d.pdissW : "",
+        isFinite(d.deltaT) ? d.deltaT : "",
         rec.note || "",
         new Date(rec.createdAt).toISOString(),
       ];
       rows.push(row.map(csvEscape).join(","));
     });
-    downloadBlob("rf-pa-records.csv", "text/csv;charset=utf-8", "\ufeff" + rows.join("\r\n"));
+    downloadBlobSmart("rf-platform-records.csv", "text/csv;charset=utf-8", "\ufeff" + rows.join("\r\n"));
+    showToast("CSV 已生成");
   }
 
   function formatTickNum(v) {
@@ -1212,7 +1710,7 @@
       (!lastChartSnapshot.points.length &&
         !(lastChartSnapshot.points2 && lastChartSnapshot.points2.length))
     ) {
-      alert("没有可导出的图表数据。请先保存至少一条记录并确保当前坐标有有效数值。");
+      showToast("没有可导出的图表数据");
       return;
     }
     var svg = buildLineChartSvg(lastChartSnapshot);
@@ -1223,15 +1721,23 @@
       .replace(/[^\w\u4e00-\u9fff.-]+/g, "_")
       .slice(0, 80);
     if (!safe || !/[\w\u4e00-\u9fff]/.test(safe)) safe = "chart";
-    downloadBlob("rf-pa-chart-" + safe + ".svg", "image/svg+xml;charset=utf-8", svg);
+    downloadBlobSmart("rf-platform-chart-" + safe + ".svg", "image/svg+xml;charset=utf-8", svg);
+    showToast("SVG 已生成");
   }
 
   function tooltipExtraLines(xKey, yKey, rec) {
     var lines = [];
+    var d;
     if (yKey === "pin" || yKey === "pout" || yKey === "pdc") {
       var mw =
         yKey === "pin" ? rec.pinMw : yKey === "pout" ? rec.poutMw : rec.pdcMw;
       lines.push("双单位: " + formatPowerDual(mw));
+    }
+    if (yKey === "vswr" || yKey === "pdissW" || yKey === "deltaTK") {
+      d = recordDerived(rec);
+      if (yKey === "vswr") lines.push("VSWR: " + fmtVswr(d.vswr));
+      if (yKey === "pdissW") lines.push("Pdiss: " + fmtPdissW(d.pdissW));
+      if (yKey === "deltaTK") lines.push("ΔT: " + fmtDeltaT(d.deltaT));
     }
     if (xKey === "freq") {
       lines.push("频率: " + formatFreqSmart(rec.freqHz));
@@ -1253,6 +1759,7 @@
       lastChartSnapshot = null;
       return;
     }
+    syncActiveRecordsRef();
     var canvas = document.getElementById("chart-canvas");
     var xKey = document.getElementById("chart-x").value;
     var yKey = document.getElementById("chart-y").value;
@@ -1390,6 +1897,9 @@
       };
     }
 
+    if (yKey === "vswr") scales.y.min = 1;
+    if (dual && y2Key === "vswr") scales.y1.min = 1;
+
     var options = {
       responsive: true,
       maintainAspectRatio: false,
@@ -1484,9 +1994,14 @@
     document.getElementById("freq-value").value = "";
     document.getElementById("pin-value").value = "";
     document.getElementById("pout-value").value = "";
+    var pref = document.getElementById("pref-value");
+    if (pref) pref.value = "";
     document.getElementById("pdc-value").value = "";
+    var rth = document.getElementById("rth-value");
+    if (rth) rth.value = "";
     document.getElementById("note").value = "";
     updateLiveResults();
+    showToast("表单已清空");
   }
 
   function parseHexToRgb(hex) {
@@ -1789,27 +2304,87 @@
     } catch (e) {}
   }
 
-  function applyFontScaleFromStorage() {
-    var v = parseInt(localStorage.getItem(FONT_SCALE_STORAGE_KEY) || "100", 10);
+  function snapFontScaleToPreset(pct) {
+    var v = parseInt(String(pct), 10);
     if (isNaN(v)) v = 100;
-    v = Math.max(85, Math.min(130, v));
-    document.documentElement.style.setProperty("--app-font-scale", String(v / 100));
-    var rng = document.getElementById("font-scale-range");
-    var lab = document.getElementById("font-scale-value");
-    if (rng) rng.value = String(v);
-    if (lab) lab.textContent = v + "%";
+    var best = FONT_SCALE_PRESETS[0];
+    var bd = Math.abs(v - best);
+    var i;
+    for (i = 0; i < FONT_SCALE_PRESETS.length; i++) {
+      var p = FONT_SCALE_PRESETS[i];
+      var d = Math.abs(v - p);
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    return best;
   }
 
-  function setupFontRange() {
-    var rng = document.getElementById("font-scale-range");
-    var lab = document.getElementById("font-scale-value");
-    if (!rng) return;
-    rng.addEventListener("input", function () {
-      var v = parseInt(rng.value, 10);
-      localStorage.setItem(FONT_SCALE_STORAGE_KEY, String(v));
-      document.documentElement.style.setProperty("--app-font-scale", String(v / 100));
-      if (lab) lab.textContent = v + "%";
+  function syncFontPresetButtons(activePct) {
+    document.querySelectorAll(".font-preset-btn").forEach(function (btn) {
+      var s = parseInt(btn.getAttribute("data-font-scale"), 10);
+      btn.classList.toggle("is-active", s === activePct);
     });
+  }
+
+  function applyFontScaleFromStorage() {
+    var raw = parseInt(localStorage.getItem(FONT_SCALE_STORAGE_KEY) || "100", 10);
+    var v = snapFontScaleToPreset(raw);
+    if (v !== raw) localStorage.setItem(FONT_SCALE_STORAGE_KEY, String(v));
+    document.documentElement.style.setProperty("--app-font-scale", String(v / 100));
+    syncFontPresetButtons(v);
+  }
+
+  function setupFontPresets() {
+    document.querySelectorAll(".font-preset-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var v = parseInt(btn.getAttribute("data-font-scale"), 10);
+        if (isNaN(v)) return;
+        localStorage.setItem(FONT_SCALE_STORAGE_KEY, String(v));
+        document.documentElement.style.setProperty("--app-font-scale", String(v / 100));
+        syncFontPresetButtons(v);
+      });
+    });
+  }
+
+  /** Web / Electron / Capacitor(APK)，用于顶栏与设置页分流控件 */
+  function getShell() {
+    try {
+      if (typeof window.Capacitor !== "undefined" && window.Capacitor) return "capacitor";
+    } catch (e) {}
+    try {
+      if (
+        typeof window.process !== "undefined" &&
+        window.process.versions &&
+        window.process.versions.electron
+      )
+        return "electron";
+    } catch (e2) {}
+    var ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+    if (/Electron\//i.test(ua)) return "electron";
+    return "web";
+  }
+
+  function applyShellLayout() {
+    var shell = getShell();
+    document.documentElement.setAttribute("data-shell", shell);
+    var cluster = document.getElementById("app-control-cluster");
+    var toolbarAttach = document.getElementById("pa-toolbar-attach");
+    var settingsSlot = document.getElementById("settings-app-controls-slot");
+    var shellLead = document.getElementById("settings-shell-lead");
+    if (!cluster || !toolbarAttach || !settingsSlot) return;
+    if (shell === "capacitor") {
+      settingsSlot.appendChild(cluster);
+      settingsSlot.hidden = false;
+      settingsSlot.setAttribute("aria-hidden", "false");
+      if (shellLead) shellLead.hidden = false;
+    } else {
+      toolbarAttach.appendChild(cluster);
+      settingsSlot.hidden = true;
+      settingsSlot.setAttribute("aria-hidden", "true");
+      if (shellLead) shellLead.hidden = true;
+    }
   }
 
   function bindEvents() {
@@ -1820,13 +2395,18 @@
       "pin-unit",
       "pout-value",
       "pout-unit",
+      "pref-value",
+      "pref-unit",
       "pdc-value",
       "pdc-unit",
+      "rth-value",
     ];
     numericIds.forEach(function (id) {
       var el = document.getElementById(id);
-      el.addEventListener("input", updateLiveResults);
-      el.addEventListener("change", updateLiveResults);
+      if (el) {
+        el.addEventListener("input", updateLiveResults);
+        el.addEventListener("change", updateLiveResults);
+      }
     });
 
     document.getElementById("btn-add").addEventListener("click", addRecord);
@@ -1842,11 +2422,154 @@
     });
   }
 
+  function setupHubNavigation() {
+    var card = document.getElementById("hub-card-pa");
+    var back = document.getElementById("btn-back-hub");
+    var hub = document.getElementById("view-hub");
+    var pa = document.getElementById("view-pa");
+    if (card && hub && pa) {
+      card.addEventListener("click", function () {
+        hub.classList.add("is-hidden");
+        pa.classList.remove("is-hidden");
+        refreshNarrowPager();
+        if (chart) chart.resize();
+      });
+    }
+    if (back && hub && pa) {
+      back.addEventListener("click", function () {
+        pa.classList.add("is-hidden");
+        hub.classList.remove("is-hidden");
+      });
+    }
+  }
+
+  function populateSessionSelect() {
+    var sel = document.getElementById("session-select");
+    if (!sel) return;
+    sel.innerHTML = "";
+    sessions.forEach(function (s) {
+      var o = document.createElement("option");
+      o.value = s.id;
+      o.textContent = s.name;
+      sel.appendChild(o);
+    });
+    sel.value = activeSessionId;
+  }
+
+  function setupSessionUi() {
+    var sel = document.getElementById("session-select");
+    var btnNew = document.getElementById("btn-session-new");
+    if (sel) {
+      sel.addEventListener("change", function () {
+        activeSessionId = sel.value;
+        saveRecords();
+        syncActiveRecordsRef();
+        lastChartMeta = computeChartMeta(records);
+        populateChartSelects();
+        renderHistory();
+        renderResultsRecordsTable();
+        renderChart();
+        updateLiveResults();
+        showToast("已切换测试集");
+      });
+    }
+    if (btnNew) {
+      btnNew.addEventListener("click", function () {
+        var name = window.prompt("新测试集名称", "测试组_" + (sessions.length + 1));
+        if (name == null || !String(name).trim()) return;
+        var sid = genSid();
+        sessions.push({ id: sid, name: String(name).trim(), records: [] });
+        activeSessionId = sid;
+        saveRecords();
+        populateSessionSelect();
+        syncActiveRecordsRef();
+        lastChartMeta = computeChartMeta(records);
+        populateChartSelects();
+        renderHistory();
+        renderResultsRecordsTable();
+        renderChart();
+        updateLiveResults();
+        showToast("已创建测试集");
+      });
+    }
+    var btnDel = document.getElementById("btn-session-delete");
+    if (btnDel) {
+      btnDel.addEventListener("click", function () {
+        if (sessions.length <= 1) {
+          showToast("至少保留一个测试集");
+          return;
+        }
+        var cur = sessions.filter(function (s) {
+          return s.id === activeSessionId;
+        })[0];
+        var label = cur ? cur.name : "当前测试集";
+        if (!confirm('确定删除测试集「' + label + '」？其中的记录将一并删除，且不可恢复。')) return;
+        sessions = sessions.filter(function (s) {
+          return s.id !== activeSessionId;
+        });
+        activeSessionId = sessions[0].id;
+        saveRecords();
+        populateSessionSelect();
+        syncActiveRecordsRef();
+        lastChartMeta = computeChartMeta(records);
+        populateChartSelects();
+        renderHistory();
+        renderResultsRecordsTable();
+        renderChart();
+        updateLiveResults();
+        showToast("已删除测试集");
+      });
+    }
+  }
+
+  function setupImportJson() {
+    var inp = document.getElementById("import-json-input");
+    var btn = document.getElementById("btn-import-json");
+    if (!btn || !inp) return;
+    btn.addEventListener("click", function () {
+      inp.click();
+    });
+    inp.addEventListener("change", function () {
+      var file = inp.files && inp.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        try {
+          var data = JSON.parse(reader.result);
+          if (data && data.version === 2 && Array.isArray(data.sessions)) {
+            sessions = data.sessions;
+            activeSessionId = data.activeSessionId || (sessions[0] && sessions[0].id) || "";
+            if (!activeSessionId && sessions.length) activeSessionId = sessions[0].id;
+            saveRecords();
+            populateSessionSelect();
+            syncActiveRecordsRef();
+            lastChartMeta = computeChartMeta(records);
+            populateChartSelects();
+            renderHistory();
+            renderResultsRecordsTable();
+            renderChart();
+            updateLiveResults();
+            showToast("已导入 JSON 配置");
+          } else {
+            showToast("JSON 格式不正确（需要 version:2 与 sessions）");
+          }
+        } catch (e) {
+          showToast("导入失败");
+        }
+        inp.value = "";
+      };
+      reader.readAsText(file, "UTF-8");
+    });
+  }
+
   function init() {
-    records = loadRecords();
+    loadSortState();
+    loadRecords();
+    applyShellLayout();
     lastChartMeta = computeChartMeta(records);
     setupAppearanceButtons();
     applyFontScaleFromStorage();
+    populateSessionSelect();
     populateChartSelects();
     bindEvents();
     setupPresetSwatches();
@@ -1856,13 +2579,19 @@
     setupResetTheme();
     setupFreqSwap();
     setupStepButtons();
+    setupHubNavigation();
+    setupSessionUi();
+    setupImportJson();
+    setupExportFallbackModal();
+    setupSortableHeaders();
     setupDockNavigation();
-    setupFontRange();
+    setupFontPresets();
     setupPagerResize();
     setupPagerScrollSync();
     refreshNarrowPager();
     updateLiveResults();
     renderHistory();
+    renderResultsRecordsTable();
     renderChart();
   }
 

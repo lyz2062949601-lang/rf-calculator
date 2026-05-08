@@ -1,7 +1,7 @@
 {
-  "name": "射频计算器（目前仅pa）",
-  "short_name": "射频计算器",
-  "description": "射频计算器（目前仅pa）：功放增益、DE、PAE 与图表",
+  "name": "射频测试记录工具",
+  "short_name": "射频测试",
+  "description": "射频测试记录 · PA 增益、驻波、热力学与图表 · v1.2",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#fffbfe",

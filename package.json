@@ -1,7 +1,7 @@
 {
   "name": "rf-pa-calculator",
-  "version": "1.0.0",
-  "description": "射频计算器（目前仅 PA）— 功放增益、DE、PAE 与图表；支持 Web / Windows / Android。",
+  "version": "1.2.0",
+  "description": "射频测试记录工具（目前仅 PA 模块）— 功放增益、驻波、热估算、DE、PAE 与图表；Web / Windows / Android。",
   "main": "electron-main.cjs",
   "private": true,
   "homepage": "https://lyz2062949601-lang.github.io/rf-calculator/",
@@ -31,7 +31,7 @@
     "android:patch": "node scripts/patch-android.cjs",
     "build:apk:arm64": "npm run cap:sync && npm run android:patch && cd android && gradlew.bat assembleDebug"
   },
-  "author": "射频计算器（目前仅pa）",
+  "author": "射频测试记录工具",
   "devDependencies": {
     "@capacitor/cli": "^6.2.0",
     "electron": "^33.2.1",
@@ -45,13 +45,17 @@
     "appId": "com.example.rfpacalculator",
     "productName": "RF-Calculator-PA",
     "copyright": "Copyright © 2026",
+    "asar": true,
+    "compression": "maximum",
+    "electronLanguages": ["en-US", "zh-CN"],
     "directories": {
       "output": "dist"
     },
     "files": [
       "electron-main.cjs",
       "package.json",
-      "www/**/*"
+      "www/**/*",
+      "!www/**/*.md"
     ],
     "win": {
       "target": [{ "target": "portable", "arch": ["x64"] }],

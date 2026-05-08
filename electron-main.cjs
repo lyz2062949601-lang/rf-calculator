@@ -4,7 +4,7 @@ const { app, BrowserWindow } = require("electron");
 const path = require("path");
 
 /** 与 package.json 中 ASCII productName 区分：exe 文件名用英文，窗口标题用中文 */
-const APP_TITLE_ZH = "射频计算器（目前仅pa）";
+const APP_TITLE_ZH = "射频测试记录工具 · PA";
 
 function createWindow() {
   const win = new BrowserWindow({

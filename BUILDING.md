@@ -57,7 +57,7 @@ Android **SDK 本体**仍由本机 Android Studio 或 sdkmanager 安装；仓库
 |------|------|
 | `RF-Calculator-PA-<version>-x64-portable.exe` | Windows 便携版；`package.json` 的 `build.win.artifactName` |
 | `web-v3/` | `www/` 的完整拷贝，便于随发行物分发 |
-| `RF-Calculator-PA-v1.0.0-arm64-debug.apk` 等 | 由 `build-apk-arm64.cmd` 从 `app-debug.apk` 复制；升级版本时请同步 **Android `versionName` / `versionCode`** 与脚本中的目标文件名 |
+| `RF-Calculator-PA-v1.2.0-arm64-debug.apk` 等 | 由 `build-apk-arm64.cmd` 从 `app-debug.apk` 复制；升级版本时请同步 **Android `versionName` / `versionCode`**、`package.json` 版本与脚本中的目标文件名 |
 
 `build-win.cmd` 会在成功后删除 `dist/win-unpacked`，并重建 `dist/web-v3/`。
 
@@ -67,7 +67,7 @@ Android **SDK 本体**仍由本机 Android Studio 或 sdkmanager 安装；仓库
 
 用户下载以 **Releases** 为准；**不要将大体积 exe/apk 提交进 Git**（见根目录 `.gitignore`）。
 
-1. 执行 `scripts\sync-github-pages.cmd` 后，将 `docs/` 打 zip，命名为 **`RF-Calculator-PA-v1.0.0-web-offline.zip`**（与主 README 表格一致）。  
+1. 执行 `scripts\sync-github-pages.cmd` 后，将 `docs/` 打 zip，命名为 **`RF-Calculator-PA-v1.2.0-web-offline.zip`**（与主 README 表格一致；版本号随发布递增）。  
 2. 设置环境变量 **`GITHUB_TOKEN`**（需 `repo` 权限），在仓库根目录执行：  
    `powershell -ExecutionPolicy Bypass -File scripts\publish-github-release.ps1`  
    亦可于 GitHub 网页手动创建 Release 并上传同名附件。
