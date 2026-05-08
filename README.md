@@ -89,18 +89,20 @@
 ## 维护者与源码构建
 
 - **构建说明：** [BUILDING.md](BUILDING.md)  
+- **仓库结构（维护者）：** [REPO_LAYOUT.md](REPO_LAYOUT.md)（`www` 与 `docs` 关系、脚本、勿提交大文件等）  
 - **同步 Pages：** 运行 `scripts\sync-github-pages.cmd`（将 `www` 复制到 `docs`）  
-- **发布 Release：** 见 [BUILDING.md](BUILDING.md) 或 `scripts/publish-github-release.ps1`（需 `GITHUB_TOKEN`）
+- **发布 Release：** 见 [BUILDING.md](BUILDING.md) 或 `scripts/publish-github-release.ps1`（需 `GITHUB_TOKEN`）；说明文字可复用 [RELEASE_v1.2.0.md](RELEASE_v1.2.0.md) 模板
 
 **仓库目录速览**
 
 | 路径 | 用途 |
 |------|------|
-| `www/` | 前端源码 |
-| `docs/` | Pages 静态站（含 Readme 用 `readme-assets/` 图示） |
-| `artifacts/` | 校验说明，见 [artifacts/README.md](artifacts/README.md) |
+| `www/` | 前端源码（**改功能只改此处**） |
+| `docs/` | GitHub Pages 站点，由 `www` 同步；另含 `readme-assets/` 插图 |
+| `artifacts/` | 仅说明文件，**不存放** exe / apk / zip，见 [artifacts/README.md](artifacts/README.md) |
 | `android/` | Capacitor Android 工程 |
-| `scripts/` | 同步、镜像、Release 等 |
+| `scripts/` | 同步、国内镜像、Release 等 |
+| `dist/` | 本地构建输出（**已 .gitignore，勿提交**） |
 
 ---
 

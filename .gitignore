@@ -1,9 +1,10 @@
 node_modules/
 dist/
 release/
-# 安装包走 GitHub Releases，不提交到仓库（减小体积）
+# 安装包与离线包走 GitHub Releases / 本地 dist，不提交大文件（减小克隆体积）
 artifacts/*.exe
 artifacts/*.apk
+artifacts/*.zip
 .DS_Store
 *.log
 npm-debug.log*
